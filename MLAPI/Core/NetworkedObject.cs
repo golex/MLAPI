@@ -474,6 +474,14 @@ namespace MLAPI
             SpawnManager.ChangeOwnership(this, newOwnerClientId);
         }
 
+        /// <summary>
+        /// Called after modifying behaviours on this networked object
+        /// </summary>
+        public void ReindexChildNetworkedBehaviours()
+        {
+            _childNetworkedBehaviours = null;
+        }
+
         internal void InvokeBehaviourOnLostOwnership()
         {
             for (int i = 0; i < childNetworkedBehaviours.Count; i++)
@@ -588,7 +596,7 @@ namespace MLAPI
         {
             if (index >= childNetworkedBehaviours.Count)
             {
-                if (LogHelper.CurrentLogLevel <= LogLevel.Error) LogHelper.LogError("Behaviour index was out of bounds. Did you mess up the order of your NetworkedBehaviours?");
+                if (LogHelper.CurrentLogLevel <= LogLevel.Error) LogHelper.LogError("Behaviour index (" + index +") was out of bounds (" + childNetworkedBehaviours.Count + "). Did you mess up the order of your NetworkedBehaviours?");
                 return null;
             }
             return childNetworkedBehaviours[index];

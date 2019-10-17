@@ -291,7 +291,7 @@ namespace MLAPI.Spawning
                 if (!pendingSoftSyncObjects.ContainsKey(instanceId))
                 {
                     // TODO: Fix this message
-                    if (LogHelper.CurrentLogLevel <= LogLevel.Error) LogHelper.LogError("Cannot find pending soft sync object. Is the projects the same?");
+                    if (LogHelper.CurrentLogLevel <= LogLevel.Error) LogHelper.LogError("Cannot find pending soft sync object (id " + instanceId + "). Is the projects the same?");
                     return null;
                 }
 
@@ -580,6 +580,9 @@ namespace MLAPI.Spawning
             {
                 if (networkedObjects[i].IsSceneObject == null)
                 {
+
+                    if (LogHelper.CurrentLogLevel <= LogLevel.Developer)
+                        LogHelper.LogInfo("Found scene network object: " + networkedObjects[i].gameObject.name + " id: " + networkedObjects[i].NetworkedInstanceId);
                     pendingSoftSyncObjects.Add(networkedObjects[i].NetworkedInstanceId, networkedObjects[i]);
                 }
             }

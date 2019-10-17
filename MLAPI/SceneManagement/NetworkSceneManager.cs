@@ -238,6 +238,9 @@ namespace MLAPI.SceneManagement
                                     sceneObjectsToSpawn++;
                             }
 
+
+                            if (LogHelper.CurrentLogLevel <= LogLevel.Developer)
+                                LogHelper.LogInfo("Creating scene object stream for " + sceneObjectsToSpawn + " scene objects");
                             writer.WriteUInt32Packed(sceneObjectsToSpawn);
 
                             for (int i = 0; i < newSceneObjects.Count; i++)
@@ -286,6 +289,10 @@ namespace MLAPI.SceneManagement
                                     {
                                         newSceneObjects[i].WriteNetworkedVarData(stream, NetworkingManager.Singleton.ConnectedClientsList[j].ClientId);
                                     }
+
+
+                                    if (LogHelper.CurrentLogLevel <= LogLevel.Developer)
+                                        LogHelper.LogInfo("Created scene object: " + newSceneObjects[i].gameObject.name + ", id " + newSceneObjects[i].NetworkedInstanceId);
                                 }
                             }
                         }
@@ -357,6 +364,8 @@ namespace MLAPI.SceneManagement
                 {
                     uint newObjectsCount = reader.ReadUInt32Packed();
 
+                    if (LogHelper.CurrentLogLevel <= LogLevel.Developer)
+                        LogHelper.LogInfo("Received " + newObjectsCount + " scene network objects");
                     for (int i = 0; i < newObjectsCount; i++)
                     {
                         bool isPlayerObject = reader.ReadBool();
@@ -371,6 +380,9 @@ namespace MLAPI.SceneManagement
                         }
 
                         ulong instanceId = reader.ReadUInt64Packed();
+
+                        if (LogHelper.CurrentLogLevel <= LogLevel.Developer)
+                            LogHelper.LogInfo("Creating scene object #" + i + " - " + networkId + ", " + instanceId + ", " + parentNetworkId);
 
                         NetworkedObject networkedObject = SpawnManager.CreateLocalNetworkedObject(true, instanceId, 0, parentNetworkId, null, null);
                         SpawnManager.SpawnNetworkedObjectLocally(networkedObject, networkId, true, isPlayerObject, owner, objectStream, false, 0, true, false);
