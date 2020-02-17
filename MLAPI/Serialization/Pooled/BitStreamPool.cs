@@ -19,16 +19,26 @@ namespace MLAPI.Serialization.Pooled
         /// <returns>An expandable PooledBitStream</returns>
         public static PooledBitStream GetStream()
         {
-            if (overflowStreams.Count > 0)
-            {
-                if (LogHelper.CurrentLogLevel <= LogLevel.Developer) LogHelper.LogInfo("Retrieving PooledBitStream from overflow pool. Recent burst?");
-                WeakReference weakStream = null;
-                while (overflowStreams.Count > 0 && ((weakStream = overflowStreams.Dequeue()) == null || !weakStream.IsAlive)) ;
-                if (weakStream.IsAlive) return (PooledBitStream)weakStream.Target;
-            }
-
             if (streams.Count == 0)
             {
+                if (overflowStreams.Count > 0)
+                {
+                    if (LogHelper.CurrentLogLevel <= LogLevel.Developer) LogHelper.LogInfo("Retrieving PooledBitStream from overflow pool. Recent burst?");
+
+                    object weakStream = null;
+                    while (overflowStreams.Count > 0 && ((weakStream = overflowStreams.Dequeue().Target) == null)) ;
+
+                    if (weakStream != null)
+                    {
+                        PooledBitStream strongStream = (PooledBitStream)weakStream;
+
+                        strongStream.SetLength(0);
+                        strongStream.Position = 0;
+
+                        return strongStream;
+                    }
+                }
+                
                 if (createdStreams == 254)
                 {
                     if (LogHelper.CurrentLogLevel <= LogLevel.Normal) LogHelper.LogWarning("255 streams have been created. Did you forget to dispose?");
@@ -39,6 +49,7 @@ namespace MLAPI.Serialization.Pooled
             }
 
             PooledBitStream stream = streams.Dequeue();
+
             stream.SetLength(0);
             stream.Position = 0;
 
@@ -53,10 +64,10 @@ namespace MLAPI.Serialization.Pooled
         {
             if (streams.Count > 16)
             {
-                //The user just created lots of streams without returning them in between.
-                //Streams are essentially byte array wrappers. This is valuable memory.
-                //Thus we put this stream as a weak reference incase of another burst
-                //But still leave it to GC
+                // The user just created lots of streams without returning them in between.
+                // Streams are essentially byte array wrappers. This is valuable memory.
+                // Thus we put this stream as a weak reference incase of another burst
+                // But still leave it to GC
                 if (LogHelper.CurrentLogLevel <= LogLevel.Developer) LogHelper.LogInfo("Putting PooledBitStream into overflow pool. Did you forget to dispose?");
                 overflowStreams.Enqueue(new WeakReference(stream));
             }

@@ -3,13 +3,13 @@ title: Connection Approval
 permalink: /wiki/connection-approval/
 ---
 
-During every new connection the MLAPI performs a handshake on top of the one(s) done by the transport. This is to ensure that the NetworkConfig's match up between the Client and Server. In the NetworkConfig you can specify to enable ConnectionApproval. Connection approval will let you decide on a per connection basis if the connection should be allowed.
+During every new connection the MLAPI performs a handshake on top of the one(s) done by the transport. This is to ensure that the NetworkConfig's match up between the Client and Server. In the NetworkConfig you can specify to enable ConnectionApproval. Connection approval will let you decide on a per connection basis if the connection should be allowed. Connection approval also lets you specify the player prefab to be created, allowing you to override the default behaviour on a per player basis.
 
 However, when ConnectionApproval is true you are also required to provide a callback where you put your approval logic inside. (Server only) Example:
 ```csharp
 private void Setup() 
 {
-    NetworkingManager.Singleton.ConnectionApprovalCallback = ApprovalCheck;
+    NetworkingManager.Singleton.ConnectionApprovalCallback += ApprovalCheck;
     NetworkingManager.Singleton.StartHost();
 }
 
@@ -17,14 +17,14 @@ private void ApprovalCheck(byte[] connectionData, ulong clientId, MLAPI.Networki
 {
     //Your logic here
     bool approve = true;
+    bool createPlayerObject = true;
 
     ulong? prefabHash = SpawnManager.GetPrefabHashFromGenerator("MyPrefabHashGenerator"); // The prefab hash. Use null to use the default player prefab
     
     //If approve is true, the connection gets added. If it's false. The client gets disconnected
-    callback(clientId, prefabHash, approve, positionToSpawnAt, rotationToSpawnWith);
+    callback(createPlayerObject, prefabHash, approve, positionToSpawnAt, rotationToSpawnWith);
 }
 ```
-
 
 ### Connection data
 The connectionData parameter is any custom data of your choice that the client should send to the server. Usually, this should be some sort of ticket, room password or similar that will decide if a connection should be approved or not. The connectionData is specified on the Client side in the NetworkingConfig supplied when connecting. Example:

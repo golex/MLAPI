@@ -10,6 +10,7 @@ using MLAPI.Serialization.Pooled;
 using MLAPI.Spawning;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using MLAPI.Messaging.Buffering;
 
 namespace MLAPI.SceneManagement
 {
@@ -23,9 +24,17 @@ namespace MLAPI.SceneManagement
         /// </summary>
         public delegate void SceneSwitchedDelegate();
         /// <summary>
+        /// Delegate for when a scene switch has been initiated
+        /// </summary>
+        public delegate void SceneSwitchStartedDelegate(AsyncOperation operation);
+        /// <summary>
         /// Event that is invoked when the scene is switched
         /// </summary>
         public static event SceneSwitchedDelegate OnSceneSwitched;
+        /// <summary>
+        /// Event that is invoked when a local scene switch has started
+        /// </summary>
+        public static event SceneSwitchStartedDelegate OnSceneSwitchStarted;
 
         internal static readonly HashSet<string> registeredSceneNames = new HashSet<string>();
         internal static readonly Dictionary<string, uint> sceneNameToIndex = new Dictionary<string, uint>();
@@ -105,11 +114,17 @@ namespace MLAPI.SceneManagement
 
             // Switch scene
             AsyncOperation sceneLoad = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+
             nextSceneName = sceneName;
 
             sceneLoad.completed += (AsyncOperation asyncOp2) => { OnSceneLoaded(switchSceneProgress.guid, null); };
 
             switchSceneProgress.SetSceneLoadOperation(sceneLoad);
+
+            if (OnSceneSwitchStarted != null)
+            {
+                OnSceneSwitchStarted(sceneLoad);
+            }
 
             return switchSceneProgress;
         }
@@ -122,10 +137,6 @@ namespace MLAPI.SceneManagement
                 if (LogHelper.CurrentLogLevel <= LogLevel.Normal) LogHelper.LogWarning("Server requested a scene switch to a non registered scene");
                 return;
             }
-            else if (SceneManager.GetActiveScene().name == sceneIndexToString[sceneIndex])
-            {
-                return; //This scene is already loaded. This usually happends at first load
-            }
 
             lastScene = SceneManager.GetActiveScene();
 
@@ -137,12 +148,18 @@ namespace MLAPI.SceneManagement
             string sceneName = sceneIndexToString[sceneIndex];
 
             AsyncOperation sceneLoad = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+
             nextSceneName = sceneName;
 
             sceneLoad.completed += (AsyncOperation asyncOp2) =>
             {
                 OnSceneLoaded(switchSceneGuid, objectStream);
             };
+
+            if (OnSceneSwitchStarted != null)
+            {
+                OnSceneSwitchStarted(sceneLoad);
+            }
         }
 
         internal static void OnFirstSceneSwitchSync(uint sceneIndex, Guid switchSceneGuid)
@@ -288,6 +305,7 @@ namespace MLAPI.SceneManagement
                                     if (NetworkingManager.Singleton.NetworkConfig.EnableNetworkedVar)
                                     {
                                         newSceneObjects[i].WriteNetworkedVarData(stream, NetworkingManager.Singleton.ConnectedClientsList[j].ClientId);
+                                        newSceneObjects[i].WriteSyncedVarData(stream, NetworkingManager.Singleton.ConnectedClientsList[j].ClientId);
                                     }
 
 
@@ -351,6 +369,21 @@ namespace MLAPI.SceneManagement
 
                         NetworkedObject networkedObject = SpawnManager.CreateLocalNetworkedObject(false, 0, prefabHash, parentNetworkId, position, rotation);
                         SpawnManager.SpawnNetworkedObjectLocally(networkedObject, networkId, true, isPlayerObject, owner, objectStream, false, 0, true, false);
+
+                        Queue<BufferManager.BufferedMessage> bufferQueue = BufferManager.ConsumeBuffersForNetworkId(networkId);
+
+                        // Apply buffered messages
+                        if (bufferQueue != null)
+                        {
+                            while (bufferQueue.Count > 0)
+                            {
+                                BufferManager.BufferedMessage message = bufferQueue.Dequeue();
+
+                                NetworkingManager.Singleton.HandleIncomingData(message.sender, message.channelName, new ArraySegment<byte>(message.payload.GetBuffer(), (int)message.payload.Position, (int)message.payload.Length), message.receiveTime, false);
+
+                                BufferManager.RecycleConsumedBufferedMessage(message);
+                            }
+                        }
                     }
                 }
             }
@@ -386,6 +419,21 @@ namespace MLAPI.SceneManagement
 
                         NetworkedObject networkedObject = SpawnManager.CreateLocalNetworkedObject(true, instanceId, 0, parentNetworkId, null, null);
                         SpawnManager.SpawnNetworkedObjectLocally(networkedObject, networkId, true, isPlayerObject, owner, objectStream, false, 0, true, false);
+
+                        Queue<BufferManager.BufferedMessage> bufferQueue = BufferManager.ConsumeBuffersForNetworkId(networkId);
+
+                        // Apply buffered messages
+                        if (bufferQueue != null)
+                        {
+                            while (bufferQueue.Count > 0)
+                            {
+                                BufferManager.BufferedMessage message = bufferQueue.Dequeue();
+
+                                NetworkingManager.Singleton.HandleIncomingData(message.sender, message.channelName, new ArraySegment<byte>(message.payload.GetBuffer(), (int)message.payload.Position, (int)message.payload.Length), message.receiveTime, false);
+
+                                BufferManager.RecycleConsumedBufferedMessage(message);
+                            }
+                        }
                     }
                 }
             }

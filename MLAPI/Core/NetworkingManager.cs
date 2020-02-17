@@ -25,6 +25,7 @@ using MLAPI.Spawning;
 using static MLAPI.Messaging.CustomMessagingManager;
 using MLAPI.Exceptions;
 using MLAPI.Transports.Tasks;
+using MLAPI.Messaging.Buffering;
 
 namespace MLAPI
 {
@@ -87,15 +88,15 @@ namespace MLAPI
         }
         private ulong localClientId;
         /// <summary>
-        /// Gets a dictionary of connected clients and their clientId keys
+        /// Gets a dictionary of connected clients and their clientId keys. This is only populated on the server.
         /// </summary>
         public readonly Dictionary<ulong, NetworkedClient> ConnectedClients = new Dictionary<ulong, NetworkedClient>();
         /// <summary>
-        /// Gets a list of connected clients
+        /// Gets a list of connected clients. This is only populated on the server.
         /// </summary>
         public readonly List<NetworkedClient> ConnectedClientsList = new List<NetworkedClient>();
         /// <summary>
-        /// Gets a dictionary of the clients that have been accepted by the transport but are still pending by the MLAPI.
+        /// Gets a dictionary of the clients that have been accepted by the transport but are still pending by the MLAPI. This is only populated on the server.
         /// </summary>
         public readonly Dictionary<ulong, PendingClient> PendingClients = new Dictionary<ulong, PendingClient>();
         /// <summary>
@@ -149,19 +150,33 @@ namespace MLAPI
         /// </summary>
         public bool IsConnectedClient { get; internal set; }
         /// <summary>
-        /// The callback to invoke once a client connects
+        /// The callback to invoke once a client connects. This callback is only ran on the server and on the local client that connects.
         /// </summary>
-        public Action<ulong> OnClientConnectedCallback = null;
+        public event Action<ulong> OnClientConnectedCallback = null;
+        internal void InvokeOnClientConnectedCallback(ulong clientId)
+        {
+            if (OnClientConnectedCallback != null)
+            {
+                OnClientConnectedCallback(clientId);
+            }
+        }
         /// <summary>
-        /// The callback to invoke when a client disconnects
+        /// The callback to invoke when a client disconnects. This callback is only ran on the server and on the local client that disconnects.
         /// </summary>
-        public Action<ulong> OnClientDisconnectCallback = null;
+        public event Action<ulong> OnClientDisconnectCallback = null;
+        internal void InvokeOnClientDisconnectCallback(ulong clientId)
+        {
+            if (OnClientDisconnectCallback != null)
+            {
+                OnClientDisconnectCallback(clientId);
+            }
+        }
         /// <summary>
         /// The callback to invoke once the server is ready
         /// </summary>
-        public Action OnServerStarted = null;
+        public event Action OnServerStarted = null;
         /// <summary>
-        /// Delegate type called when connection has been approved
+        /// Delegate type called when connection has been approved. This only has to be set on the server.
         /// </summary>
         /// <param name="createPlayerObject">If true, a player object will be created. Otherwise the client will have no object.</param>
         /// <param name="playerPrefabHash">The prefabHash to use for the client. If createPlayerObject is false, this is ignored. If playerPrefabHash is null, the default player prefab is used.</param>
@@ -172,7 +187,14 @@ namespace MLAPI
         /// <summary>
         /// The callback to invoke during connection approval
         /// </summary>
-        public Action<byte[], ulong, ConnectionApprovedDelegate> ConnectionApprovalCallback = null;
+        public event Action<byte[], ulong, ConnectionApprovedDelegate> ConnectionApprovalCallback = null;
+        internal void InvokeConnectionApproval(byte[] payload, ulong clientId, ConnectionApprovedDelegate action)
+        {
+            if (ConnectionApprovalCallback != null)
+            {
+                ConnectionApprovalCallback(payload, clientId, action);
+            }
+        }
         /// <summary>
         /// The current NetworkingConfiguration
         /// </summary>
@@ -400,6 +422,8 @@ namespace MLAPI
 
             NetworkConfig.NetworkTransport.OnTransportEvent += HandleRawTransportPoll;
 
+            NetworkConfig.NetworkTransport.ResetChannelCache();
+
             NetworkConfig.NetworkTransport.Init();
         }
 
@@ -591,7 +615,8 @@ namespace MLAPI
             else
             {
                 Singleton = this;
-                if (OnSingletonReady != null) OnSingletonReady();
+                if (OnSingletonReady != null)
+                    OnSingletonReady();
                 if (DontDestroy)
                     DontDestroyOnLoad(gameObject);
                 if (RunInBackground)
@@ -669,6 +694,11 @@ namespace MLAPI
                     {
                         // Do NetworkedVar updates
                         NetworkedObject.NetworkedBehaviourUpdate();
+                    }
+
+                    if (!IsServer && NetworkConfig.EnableMessageBuffering)
+                    {
+                        BufferManager.CleanBuffer();
                     }
 
                     if (IsServer)
@@ -857,7 +887,7 @@ namespace MLAPI
                 case NetEventType.Data:
                     if (LogHelper.CurrentLogLevel <= LogLevel.Developer) LogHelper.LogInfo($"Incoming Data From {clientId} : {payload.Count} bytes");
 
-                    HandleIncomingData(clientId, channelName, payload, receiveTime);
+                    HandleIncomingData(clientId, channelName, payload, receiveTime, true);
                     break;
                 case NetEventType.Disconnect:
                     NetworkProfiler.StartEvent(TickType.Receive, 0, "NONE", "TRANSPORT_DISCONNECT");
@@ -881,7 +911,7 @@ namespace MLAPI
 
         private readonly BitStream inputStreamWrapper = new BitStream(new byte[0]);
 
-        private void HandleIncomingData(ulong clientId, string channelName, ArraySegment<byte> data, float receiveTime)
+        internal void HandleIncomingData(ulong clientId, string channelName, ArraySegment<byte> data, float receiveTime, bool allowBuffer)
         {
             if (LogHelper.CurrentLogLevel <= LogLevel.Developer) LogHelper.LogInfo("Unwrapping Data Header");
 
@@ -915,7 +945,31 @@ namespace MLAPI
                     return;
                 }
 
+
+                void bufferCallback(ulong networkId)
+                {
+                    if (!allowBuffer)
+                    {
+                        // This is to prevent recursive buffering
+                        if (LogHelper.CurrentLogLevel <= LogLevel.Error) LogHelper.LogError("A message of type " + MLAPIConstants.MESSAGE_NAMES[messageType] + " was recursivley buffered. It has been dropped.");
+                        return;
+                    }
+
+                    if (!NetworkConfig.EnableMessageBuffering)
+                    {
+                        throw new InvalidOperationException("Cannot buffer with buffering disabled.");
+                    }
+
+                    if (IsServer)
+                    {
+                        throw new InvalidOperationException("Cannot buffer on server.");
+                    }
+
+                    BufferManager.BufferMessageForNetworkId(networkId, clientId, channelName, receiveTime, data);
+                }
+
                 #region INTERNAL MESSAGE
+
                 switch (messageType)
                 {
                     case MLAPIConstants.MLAPI_CONNECTION_REQUEST:
@@ -931,7 +985,7 @@ namespace MLAPI
                         if (IsClient) InternalMessageHandler.HandleDestroyObject(clientId, messageStream);
                         break;
                     case MLAPIConstants.MLAPI_SWITCH_SCENE:
-                        if (IsClient && NetworkConfig.EnableSceneManagement) InternalMessageHandler.HandleSwitchScene(clientId, messageStream);
+                        if (IsClient) InternalMessageHandler.HandleSwitchScene(clientId, messageStream);
                         break;
                     case MLAPIConstants.MLAPI_CHANGE_OWNER:
                         if (IsClient) InternalMessageHandler.HandleChangeOwner(clientId, messageStream);
@@ -946,10 +1000,10 @@ namespace MLAPI
                         if (IsClient) InternalMessageHandler.HandleTimeSync(clientId, messageStream, receiveTime);
                         break;
                     case MLAPIConstants.MLAPI_NETWORKED_VAR_DELTA:
-                        InternalMessageHandler.HandleNetworkedVarDelta(clientId, messageStream);
+                        InternalMessageHandler.HandleNetworkedVarDelta(clientId, messageStream, bufferCallback);
                         break;
                     case MLAPIConstants.MLAPI_NETWORKED_VAR_UPDATE:
-                        InternalMessageHandler.HandleNetworkedVarUpdate(clientId, messageStream);
+                        InternalMessageHandler.HandleNetworkedVarUpdate(clientId, messageStream, bufferCallback);
                         break;
                     case MLAPIConstants.MLAPI_SERVER_RPC:
                         if (IsServer) InternalMessageHandler.HandleServerRPC(clientId, messageStream);
@@ -961,10 +1015,10 @@ namespace MLAPI
                         if (IsClient) InternalMessageHandler.HandleServerRPCResponse(clientId, messageStream);
                         break;
                     case MLAPIConstants.MLAPI_CLIENT_RPC:
-                        if (IsClient) InternalMessageHandler.HandleClientRPC(clientId, messageStream);
+                        if (IsClient) InternalMessageHandler.HandleClientRPC(clientId, messageStream, bufferCallback);
                         break;
                     case MLAPIConstants.MLAPI_CLIENT_RPC_REQUEST:
-                        if (IsClient) InternalMessageHandler.HandleClientRPCRequest(clientId, messageStream, channelName, security);
+                        if (IsClient) InternalMessageHandler.HandleClientRPCRequest(clientId, messageStream, channelName, security, bufferCallback);
                         break;
                     case MLAPIConstants.MLAPI_CLIENT_RPC_RESPONSE:
                         if (IsServer) InternalMessageHandler.HandleClientRPCResponse(clientId, messageStream);
@@ -988,6 +1042,9 @@ namespace MLAPI
 #endif
                     case MLAPIConstants.MLAPI_CLIENT_SWITCH_SCENE_COMPLETED:
                         if (IsServer && NetworkConfig.EnableSceneManagement) InternalMessageHandler.HandleClientSwitchSceneCompleted(clientId, messageStream);
+                        break;
+                    case MLAPIConstants.MLAPI_SYNCED_VAR:
+                        if (IsClient) InternalMessageHandler.HandleSyncedVar(clientId, messageStream);
                         break;
                     default:
                         if (LogHelper.CurrentLogLevel <= LogLevel.Error) LogHelper.LogError("Read unrecognized messageType " + messageType);
@@ -1225,6 +1282,7 @@ namespace MLAPI
                             if (NetworkConfig.EnableNetworkedVar)
                             {
                                 observedObject.WriteNetworkedVarData(stream, clientId);
+                                observedObject.WriteSyncedVarData(stream, clientId);
                             }
                         }
 
@@ -1285,6 +1343,7 @@ namespace MLAPI
                             if (NetworkConfig.EnableNetworkedVar)
                             {
                                 ConnectedClients[clientId].PlayerObject.WriteNetworkedVarData(stream, clientPair.Key);
+                                ConnectedClients[clientId].PlayerObject.WriteSyncedVarData(stream, clientPair.Key);
                             }
 
                             InternalMessageSender.Send(clientPair.Key, MLAPIConstants.MLAPI_ADD_OBJECT, "MLAPI_INTERNAL", stream, SecuritySendFlags.None, null);
