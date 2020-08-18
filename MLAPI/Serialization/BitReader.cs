@@ -167,8 +167,8 @@ namespace MLAPI.Serialization
                 }
                 else 
                 {
-                    if (LogHelper.CurrentLogLevel <= LogLevel.Normal)
-                        LogHelper.LogWarning("BitReader cannot find the GameObject sent in the SpawnedObjects list, it may have been destroyed. NetworkId: " + networkId.ToString());
+                    if (NetworkLog.CurrentLogLevel <= LogLevel.Normal)
+                        NetworkLog.LogWarning("BitReader cannot find the GameObject sent in the SpawnedObjects list, it may have been destroyed. NetworkId: " + networkId.ToString());
                     return null;
                 }
             }
@@ -182,8 +182,8 @@ namespace MLAPI.Serialization
                 }
                 else 
                 {
-                    if (LogHelper.CurrentLogLevel <= LogLevel.Normal)
-                        LogHelper.LogWarning("BitReader cannot find the NetworkedObject sent in the SpawnedObjects list, it may have been destroyed. NetworkId: " + networkId.ToString());
+                    if (NetworkLog.CurrentLogLevel <= LogLevel.Normal)
+                        NetworkLog.LogWarning("BitReader cannot find the NetworkedObject sent in the SpawnedObjects list, it may have been destroyed. NetworkId: " + networkId.ToString());
                     return null;
                 }
             }
@@ -197,8 +197,8 @@ namespace MLAPI.Serialization
                 }
                 else 
                 {
-                    if (LogHelper.CurrentLogLevel <= LogLevel.Normal)
-                        LogHelper.LogWarning("BitReader cannot find the NetworkedBehaviour sent in the SpawnedObjects list, it may have been destroyed. NetworkId: " + networkId.ToString());
+                    if (NetworkLog.CurrentLogLevel <= LogLevel.Normal)
+                        NetworkLog.LogWarning("BitReader cannot find the NetworkedBehaviour sent in the SpawnedObjects list, it may have been destroyed. NetworkId: " + networkId.ToString());
                     return null;
                 }
             }
@@ -374,7 +374,7 @@ namespace MLAPI.Serialization
             float y = ReadSinglePacked();
             float z = ReadSinglePacked();
 
-            float w = Mathf.Sqrt(1 - ((Mathf.Pow(x, 2) - (Mathf.Pow(y, 2) - (Mathf.Pow(z, 2))))));
+            float w = Mathf.Sqrt(1f - Mathf.Pow(x, 2) - Mathf.Pow(y, 2) - Mathf.Pow(z, 2));
 
             return new Quaternion(x, y, z, w);
         }

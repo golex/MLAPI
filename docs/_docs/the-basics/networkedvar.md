@@ -15,12 +15,17 @@ Since the NetworkedVar container is a wrapper container around the value, the va
         <h3 class="panel-title">Disclaimer</h3>
     </div>
     <div class="panel-body">
-        The NetworkedVar, NetworkedList and NetworkedDictionary implementations are <b>primarly</b> designed as samples showing to do create INetworkedVar structures. The NetworkedVar container is however concidered production ready for simple types.
+        The NetworkedVar, NetworkedList and NetworkedDictionary implementations are <b>primarily</b> designed as samples showing how to create INetworkedVar structures. The NetworkedVar container is however concidered production ready for simple types.
     </div>
 </div>
 
 To create your own NetworkedVar container, simply create a class with the INetworkedVar interface and declare it as a field of a NetworkedBehaviour. To learn how to write your own containers for more complex structures, see the NetworkedVar implementation. To learn how to do custom delta encoding on complex structures. See the SyncedDictionary and SyncedLIst implementations.
 
+### Permissions
+By default NetworkedVar and it's subclasses can only be wrote to by the server (NetworkedVarPermission.ServerOnly). To change that set the permission to the desired value during initialization:
+```csharp
+private NetworkedVar<float> myFloat = new NetworkedVar(new NetworkedVarSettings {WritePermission = NetworkedVarPermission.OwnerOnly}, 5);
+```
 
 ### Example
 ```csharp
